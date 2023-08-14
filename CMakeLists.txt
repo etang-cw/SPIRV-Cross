@@ -287,6 +287,7 @@ if (SPIRV_CROSS_STATIC)
 	if (SPIRV_CROSS_ENABLE_MSL)
 		spirv_cross_add_library(spirv-cross-msl spirv_cross_msl STATIC
 				${spirv-cross-msl-sources})
+		target_compile_features(spirv-cross-msl PRIVATE cxx_std_14)
 		if (SPIRV_CROSS_ENABLE_GLSL)
 			target_link_libraries(spirv-cross-msl PRIVATE spirv-cross-glsl)
 		else()
