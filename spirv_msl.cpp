@@ -1747,8 +1747,8 @@ void CompilerMSL::extract_global_variables_from_functions()
 				auto &entry_func = this->get<SPIRFunction>(ir.default_entry_point);
 				entry_func.add_local_variable(var.self);
 				vars_needing_early_declaration.push_back(var.self);
-				entry_func.fixup_hooks_in.push_back([this, &var]()
-				                                    { statement(to_name(var.self), " = simd_is_helper_thread();"); });
+				entry_func.add_fixup_hook_in([this, &var]
+				                             { statement(to_name(var.self), " = simd_is_helper_thread();"); });
 			}
 		}
 
@@ -2416,7 +2416,7 @@ bool CompilerMSL::add_component_variable_to_interface_block(spv::StorageClass st
 
 		if (var.storage == StorageClassInput)
 		{
-			entry_func.fixup_hooks_in.push_back([=, &type, &var]() {
+			entry_func.add_fixup_hook_in([=, &type, &var]() {
 				if (!type.array.empty())
 				{
 					uint32_t array_size = to_array_size_literal(type);
@@ -2543,7 +2543,7 @@ void CompilerMSL::add_plain_variable_to_interface_block(StorageClass storage, co
 		}
 		else
 		{
-			entry_func.fixup_hooks_in.push_back([=, &var]() {
+			entry_func.add_fixup_hook_in([=, &var]() {
 				statement(to_name(var.self), " = ", qual_var_name, vector_swizzle(type_components, start_component),
 				          ";");
 			});
@@ -2556,14 +2556,14 @@ void CompilerMSL::add_plain_variable_to_interface_block(StorageClass storage, co
 	{
 		if (padded_output || padded_input)
 		{
-			entry_func.fixup_hooks_in.push_back(
+			entry_func.add_fixup_hook_in(
 			    [=, &var]() { statement(to_name(var.self), " = ", to_expression(var.initializer), ";"); });
 		}
 		else
 		{
 			if (meta.strip_array)
 			{
-				entry_func.fixup_hooks_in.push_back([=, &var]() {
+				entry_func.add_fixup_hook_in([=, &var]() {
 					uint32_t index = get_extended_decoration(var.self, SPIRVCrossDecorationInterfaceMemberIndex);
 					auto invocation = to_tesc_invocation_id();
 					statement(to_expression(stage_out_ptr_var_id), "[",
@@ -2574,7 +2574,7 @@ void CompilerMSL::add_plain_variable_to_interface_block(StorageClass storage, co
 			}
 			else
 			{
-				entry_func.fixup_hooks_in.push_back([=, &var]() {
+				entry_func.add_fixup_hook_in([=, &var]() {
 					statement(qual_var_name, " = ", to_expression(var.initializer), ";");
 				});
 			}
@@ -2821,7 +2821,7 @@ void CompilerMSL::add_composite_variable_to_interface_block(StorageClass storage
 			switch (storage)
 			{
 			case StorageClassInput:
-				entry_func.fixup_hooks_in.push_back([=, &var]() {
+				entry_func.add_fixup_hook_in([=, &var]() {
 					if (pull_model_inputs.count(var.self))
 					{
 						string lerp_call;
@@ -3041,7 +3041,7 @@ void CompilerMSL::add_composite_member_variable_to_interface_block(StorageClass 
 			switch (storage)
 			{
 			case StorageClassInput:
-				entry_func.fixup_hooks_in.push_back([=, &var]() {
+				entry_func.add_fixup_hook_in([=, &var]() {
 					string lerp_call;
 					if (pull_model_inputs.count(var.self))
 					{
@@ -3134,7 +3134,7 @@ void CompilerMSL::add_plain_member_variable_to_interface_block(StorageClass stor
 		switch (storage)
 		{
 		case StorageClassInput:
-			entry_func.fixup_hooks_in.push_back([=]() {
+			entry_func.add_fixup_hook_in([=]() {
 				statement(var_chain, " = ", qual_var_name, ";");
 			});
 			break;
@@ -3231,7 +3231,7 @@ void CompilerMSL::add_plain_member_variable_to_interface_block(StorageClass stor
 	{
 		if (meta.strip_array)
 		{
-			entry_func.fixup_hooks_in.push_back([=, &var]() {
+			entry_func.add_fixup_hook_in([=, &var]() {
 				auto &type = this->get<SPIRType>(var.basetype);
 				uint32_t index = get_extended_member_decoration(var.self, mbr_idx, SPIRVCrossDecorationInterfaceMemberIndex);
 
@@ -3245,7 +3245,7 @@ void CompilerMSL::add_plain_member_variable_to_interface_block(StorageClass stor
 		}
 		else
 		{
-			entry_func.fixup_hooks_in.push_back([=]() {
+			entry_func.add_fixup_hook_in([=]() {
 				statement(qual_var_name, " = ", constant_expression(
 						this->get<SPIRConstant>(c->subconstants[mbr_idx])), ";");
 			});
@@ -3365,7 +3365,7 @@ void CompilerMSL::add_tess_level_input(const std::string &base_ref, const std::s
 
 	if (builtin == BuiltInTessLevelOuter)
 	{
-		entry_func.fixup_hooks_in.push_back(
+		entry_func.add_fixup_hook_in(
 		    [=]()
 		    {
 			    statement(var_name, "[0] = ", base_ref, ".", mbr_name, "[0];");
@@ -3377,7 +3377,7 @@ void CompilerMSL::add_tess_level_input(const std::string &base_ref, const std::s
 	}
 	else
 	{
-		entry_func.fixup_hooks_in.push_back([=]() {
+		entry_func.add_fixup_hook_in([=]() {
 			if (triangles)
 			{
 				if (msl_options.raw_buffer_tese_input)
@@ -3425,7 +3425,7 @@ void CompilerMSL::emit_local_masked_variable(const SPIRVariable &masked_var, boo
 	if (threadgroup_storage && msl_options.multi_patch_workgroup)
 	{
 		// We need one threadgroup block per patch, so fake this.
-		entry_func.fixup_hooks_in.push_back([this, &masked_var]() {
+		entry_func.add_fixup_hook_in([this, &masked_var]() {
 			auto &type = get_variable_data_type(masked_var);
 			add_local_variable_name(masked_var.self);
 
@@ -3472,7 +3472,7 @@ void CompilerMSL::emit_local_masked_variable(const SPIRVariable &masked_var, boo
 		ID initializer = masked_var.initializer;
 		if (strip_array)
 		{
-			entry_func.fixup_hooks_in.push_back([this, &masked_var, initializer]() {
+			entry_func.add_fixup_hook_in([this, &masked_var, initializer]() {
 				auto invocation = to_tesc_invocation_id();
 				statement(to_expression(masked_var.self), "[",
 				          invocation, "] = ",
@@ -3482,7 +3482,7 @@ void CompilerMSL::emit_local_masked_variable(const SPIRVariable &masked_var, boo
 		}
 		else
 		{
-			entry_func.fixup_hooks_in.push_back([this, &masked_var, initializer]() {
+			entry_func.add_fixup_hook_in([this, &masked_var, initializer]() {
 				statement(to_expression(masked_var.self), " = ", to_expression(initializer), ";");
 			});
 		}
@@ -3949,7 +3949,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 		{
 		case ExecutionModelTessellationControl:
 			// Add a hook to populate the shared workgroup memory containing the gl_in array.
-			entry_func.fixup_hooks_in.push_back([=]() {
+			entry_func.add_fixup_hook_in([=]() {
 				// Can't use PatchVertices, PrimitiveId, or InvocationId yet; the hooks for those may not have run yet.
 				if (msl_options.multi_patch_workgroup)
 				{
@@ -3979,7 +3979,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 				break;
 			if (patch)
 			{
-				entry_func.fixup_hooks_in.push_back(
+				entry_func.add_fixup_hook_in(
 				    [=]()
 				    {
 					    statement("const device ", to_name(ir.default_entry_point), "_", ib_var_ref, "& ", ib_var_ref,
@@ -3989,7 +3989,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 			}
 			else
 			{
-				entry_func.fixup_hooks_in.push_back(
+				entry_func.add_fixup_hook_in(
 				    [=]()
 				    {
 					    statement("const device ", to_name(ir.default_entry_point), "_", ib_var_ref, "* gl_in = &",
@@ -4037,7 +4037,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 				// copying that to the output buffer, we'll declare the output variable
 				// as a reference to the final output element in the buffer. Then we can
 				// avoid the extra copy.
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					if (stage_out_var_id)
 					{
 						// The first member of the indirect buffer is always the number of vertices
@@ -4073,7 +4073,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 					// We cannot use PrimitiveId here, because the hook may not have run yet.
 					if (patch)
 					{
-						entry_func.fixup_hooks_in.push_back([=]() {
+						entry_func.add_fixup_hook_in([=]() {
 							statement("device ", to_name(ir.default_entry_point), "_", ib_var_ref, "& ", ib_var_ref,
 							          " = ", patch_output_buffer_var_name, "[", to_expression(builtin_invocation_id_id),
 							          ".x / ", get_entry_point().output_vertices, "];");
@@ -4081,7 +4081,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 					}
 					else
 					{
-						entry_func.fixup_hooks_in.push_back([=]() {
+						entry_func.add_fixup_hook_in([=]() {
 							statement("device ", to_name(ir.default_entry_point), "_", ib_var_ref, "* gl_out = &",
 							          output_buffer_var_name, "[", to_expression(builtin_invocation_id_id), ".x - ",
 							          to_expression(builtin_invocation_id_id), ".x % ",
@@ -4093,7 +4093,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 				{
 					if (patch)
 					{
-						entry_func.fixup_hooks_in.push_back([=]() {
+						entry_func.add_fixup_hook_in([=]() {
 							statement("device ", to_name(ir.default_entry_point), "_", ib_var_ref, "& ", ib_var_ref,
 							          " = ", patch_output_buffer_var_name, "[", to_expression(builtin_primitive_id_id),
 							          "];");
@@ -4101,7 +4101,7 @@ uint32_t CompilerMSL::add_interface_block(StorageClass storage, bool patch)
 					}
 					else
 					{
-						entry_func.fixup_hooks_in.push_back([=]() {
+						entry_func.add_fixup_hook_in([=]() {
 							statement("device ", to_name(ir.default_entry_point), "_", ib_var_ref, "* gl_out = &",
 							          output_buffer_var_name, "[", to_expression(builtin_primitive_id_id), " * ",
 							          get_entry_point().output_vertices, "];");
@@ -12895,7 +12895,7 @@ void CompilerMSL::entry_point_args_builtin(string &ep_args)
 			if (outer_factor_initializer_id && (c = maybe_get<SPIRConstant>(outer_factor_initializer_id)))
 			{
 				auto &entry_func = get<SPIRFunction>(ir.default_entry_point);
-				entry_func.fixup_hooks_in.push_back(
+				entry_func.add_fixup_hook_in(
 				    [=]()
 				    {
 					    uint32_t components = is_tessellating_triangles() ? 3 : 4;
@@ -12912,14 +12912,14 @@ void CompilerMSL::entry_point_args_builtin(string &ep_args)
 				auto &entry_func = get<SPIRFunction>(ir.default_entry_point);
 				if (is_tessellating_triangles())
 				{
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(builtin_to_glsl(BuiltInTessLevelInner, StorageClassOutput), " = ", "half(",
 						          to_expression(c->subconstants[0]), ");");
 					});
 				}
 				else
 				{
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						for (uint32_t i = 0; i < 2; i++)
 						{
 							statement(builtin_to_glsl(BuiltInTessLevelInner, StorageClassOutput), "[", i, "] = ",
@@ -13380,7 +13380,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 	// if it ever becomes possible to use barriers from a vertex shader.
 	if (get_execution_model() == ExecutionModelVertex && msl_options.vertex_for_tessellation)
 	{
-		entry_func.fixup_hooks_in.push_back([this]() {
+		entry_func.add_fixup_hook_in([this]() {
 			statement("if (any(", to_expression(builtin_invocation_id_id),
 			          " >= ", to_expression(builtin_stage_input_size_id), "))");
 			statement("    return;");
@@ -13397,7 +13397,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 		{
 			if (msl_options.swizzle_texture_samples && has_sampled_images && is_sampled_image_type(type))
 			{
-				entry_func.fixup_hooks_in.push_back([this, &type, &var, var_id]() {
+				entry_func.add_fixup_hook_in([this, &type, &var, var_id]() {
 					bool is_array_type = !type.array.empty();
 
 					uint32_t desc_set = get_decoration(var_id, DecorationDescriptorSet);
@@ -13423,7 +13423,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 		{
 			if (buffer_requires_array_length(var.self))
 			{
-				entry_func.fixup_hooks_in.push_back(
+				entry_func.add_fixup_hook_in(
 				    [this, &type, &var, var_id]()
 				    {
 					    bool is_array_type = !type.array.empty() && !is_runtime_size_array(type);
@@ -13463,7 +13463,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 			switch (bi_type)
 			{
 			case BuiltInSamplePosition:
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = get_sample_position(",
 					          to_expression(builtin_sample_id_id), ");");
 				});
@@ -13471,7 +13471,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 			case BuiltInFragCoord:
 				if (is_sample_rate())
 				{
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(to_expression(var_id), ".xy += get_sample_position(",
 						          to_expression(builtin_sample_id_id), ") - 0.5;");
 					});
@@ -13482,7 +13482,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!is_tesc_shader() || !msl_options.multi_patch_workgroup)
 					break;
 
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 					          to_expression(builtin_invocation_id_id), ".x % ", this->get_entry_point().output_vertices,
 					          ";");
@@ -13494,7 +13494,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!is_tesc_shader() || !msl_options.multi_patch_workgroup)
 					break;
 
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = min(",
 					          to_expression(builtin_invocation_id_id), ".x / ", this->get_entry_point().output_vertices,
 					          ", spvIndirectParams[1] - 1);");
@@ -13502,12 +13502,12 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				break;
 			case BuiltInPatchVertices:
 				if (is_tese_shader())
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 						          to_expression(patch_stage_in_var_id), ".gl_in.size();");
 					});
 				else
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = spvIndirectParams[0];");
 					});
 				break;
@@ -13516,7 +13516,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				{
 					// The entry point will only have a float2 TessCoord variable.
 					// Pad to float3.
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						auto name = builtin_to_glsl(BuiltInTessCoord, StorageClassInput);
 						statement("float3 " + name + " = float3(" + name + "In.x, " + name + "In.y, 0.0);");
 					});
@@ -13527,14 +13527,14 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (msl_options.tess_domain_origin_lower_left && !is_tessellating_triangles())
 				{
 					string tc = to_expression(var_id);
-					entry_func.fixup_hooks_in.push_back([=]() { statement(tc, ".y = 1.0 - ", tc, ".y;"); });
+					entry_func.add_fixup_hook_in([=]() { statement(tc, ".y = 1.0 - ", tc, ".y;"); });
 				}
 				break;
 			case BuiltInSubgroupId:
 				if (!msl_options.emulate_subgroups)
 					break;
 				// For subgroup emulation, this is the same as the local invocation index.
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 					          to_expression(builtin_local_invocation_index_id), ";");
 				});
@@ -13543,7 +13543,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.emulate_subgroups)
 					break;
 				// For subgroup emulation, this is the same as the workgroup size.
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					auto &type = expression_type(builtin_workgroup_size_id);
 					string size_expr = to_expression(builtin_workgroup_size_id);
 					if (type.vecsize >= 3)
@@ -13557,19 +13557,19 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.emulate_subgroups)
 					break;
 				// For subgroup emulation, assume subgroups of size 1.
-				entry_func.fixup_hooks_in.push_back(
+				entry_func.add_fixup_hook_in(
 				    [=]() { statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = 0;"); });
 				break;
 			case BuiltInSubgroupSize:
 				if (msl_options.emulate_subgroups)
 				{
 					// For subgroup emulation, assume subgroups of size 1.
-					entry_func.fixup_hooks_in.push_back(
+					entry_func.add_fixup_hook_in(
 					    [=]() { statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = 1;"); });
 				}
 				else if (msl_options.fixed_subgroup_size != 0)
 				{
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 						          msl_options.fixed_subgroup_size, ";");
 					});
@@ -13580,7 +13580,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 					SPIRV_CROSS_THROW("Subgroup ballot functionality requires Metal 2.2 on iOS.");
 				if (!msl_options.supports_msl_version(2, 1))
 					SPIRV_CROSS_THROW("Subgroup ballot functionality requires Metal 2.1.");
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					if (msl_options.is_ios())
 					{
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ", "uint4(1 << ",
@@ -13602,7 +13602,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 					SPIRV_CROSS_THROW("Subgroup ballot functionality requires Metal 2.1.");
 				if (msl_options.fixed_subgroup_size != 0)
 					add_spv_func_and_recompile(SPVFuncImplSubgroupBallot);
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					// Case where index < 32, size < 32:
 					// mask0 = bfi(0, 0xFFFFFFFF, index, size - index);
 					// mask1 = bfi(0, 0xFFFFFFFF, 0, 0); // Gives 0
@@ -13670,7 +13670,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.supports_msl_version(2, 1))
 					SPIRV_CROSS_THROW("Subgroup ballot functionality requires Metal 2.1.");
 				add_spv_func_and_recompile(SPVFuncImplSubgroupBallot);
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					// The same logic applies here, except now the index is one
 					// more than the subgroup invocation ID.
 					if (msl_options.fixed_subgroup_size > 32)
@@ -13722,7 +13722,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.supports_msl_version(2, 1))
 					SPIRV_CROSS_THROW("Subgroup ballot functionality requires Metal 2.1.");
 				add_spv_func_and_recompile(SPVFuncImplSubgroupBallot);
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					if (msl_options.is_ios())
 					{
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id),
@@ -13745,7 +13745,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.supports_msl_version(2, 1))
 					SPIRV_CROSS_THROW("Subgroup ballot functionality requires Metal 2.1.");
 				add_spv_func_and_recompile(SPVFuncImplSubgroupBallot);
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					if (msl_options.is_ios())
 					{
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id),
@@ -13767,14 +13767,14 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				{
 					// According to the Vulkan spec, when not running under a multiview
 					// render pass, ViewIndex is 0.
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement("const ", builtin_type_decl(bi_type), " ", to_expression(var_id), " = 0;");
 					});
 				}
 				else if (msl_options.view_index_from_device_index)
 				{
 					// In this case, we take the view index from that of the device we're running on.
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement("const ", builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 						          msl_options.device_index, ";");
 					});
@@ -13786,7 +13786,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				{
 					// In this case, the views are rendered one at a time. The view index, then,
 					// is just the first part of the "view mask".
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement("const ", builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 						          to_expression(view_mask_buffer_id), "[0];");
 					});
@@ -13795,7 +13795,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				{
 					// Because we adjusted the view index in the vertex shader, we have to
 					// adjust it back here.
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(to_expression(var_id), " += ", to_expression(view_mask_buffer_id), "[0];");
 					});
 				}
@@ -13803,7 +13803,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				{
 					// Metal provides no special support for multiview, so we smuggle
 					// the view index in the instance index.
-					entry_func.fixup_hooks_in.push_back([=]() {
+					entry_func.add_fixup_hook_in([=]() {
 						statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 						          to_expression(view_mask_buffer_id), "[0] + (", to_expression(builtin_instance_idx_id),
 						          " - ", to_expression(builtin_base_instance_id), ") % ",
@@ -13827,7 +13827,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				// Metal pipelines belong to the devices which create them, so we'll
 				// need to create a MTLPipelineState for every MTLDevice in a grouped
 				// VkDevice. We can assume, then, that the device index is constant.
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement("const ", builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 					          msl_options.device_index, ";");
 				});
@@ -13839,7 +13839,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				// The vkCmdDispatchBase() command lets the client set the base value
 				// of WorkgroupId. Metal has no direct equivalent; we must make this
 				// adjustment ourselves.
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(to_expression(var_id), " += ", to_dereferenced_expression(builtin_dispatch_base_id), ";");
 				});
 				break;
@@ -13849,7 +13849,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 
 				// GlobalInvocationId is defined as LocalInvocationId + WorkgroupId * WorkgroupSize.
 				// This needs to be adjusted too.
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					auto &execution = this->get_entry_point();
 					uint32_t workgroup_size_id = execution.workgroup_size.constant;
 					if (workgroup_size_id)
@@ -13867,7 +13867,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.vertex_for_tessellation)
 					break;
 
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					builtin_declaration = true;
 					switch (msl_options.vertex_index_type)
 					{
@@ -13891,7 +13891,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.vertex_for_tessellation)
 					break;
 
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 					          to_expression(builtin_dispatch_base_id), ".x;");
 				});
@@ -13902,7 +13902,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.vertex_for_tessellation)
 					break;
 
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					builtin_declaration = true;
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 					          to_expression(builtin_invocation_id_id), ".y + ", to_expression(builtin_dispatch_base_id),
@@ -13915,7 +13915,7 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 				if (!msl_options.vertex_for_tessellation)
 					break;
 
-				entry_func.fixup_hooks_in.push_back([=]() {
+				entry_func.add_fixup_hook_in([=]() {
 					statement(builtin_type_decl(bi_type), " ", to_expression(var_id), " = ",
 					          to_expression(builtin_dispatch_base_id), ".y;");
 				});
