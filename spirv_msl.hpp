@@ -1084,6 +1084,7 @@ protected:
 	private:
 		Attribute attributes[MaxAttributes];
 		Binding bindings[MaxBindings];
+		class Impl;
 
 	public:
 		/// Initialize the vertex loader writer
